@@ -1,5 +1,7 @@
+
 const vscode = require('vscode');
 const WebSocket = require('ws');
+const cp = require('child_process')
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -136,6 +138,7 @@ function websocketServer(context, port) {
 			onDidChange(vscode.debug.activeDebugSession, ws, "onDidReceiveDebugSessionCustomEvent", e.body)
 		}));
 
+
 	});
 	return wss;
 }
@@ -169,6 +172,7 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 	let eventID;
 	let vscodeCommand;
 	let terminalCommand;
+	let commandWithReturn;
 	let terminalName;
 
 
@@ -176,6 +180,7 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 		eventID = JSON.parse(message).eventID;
 		vscodeCommand = JSON.parse(message).vscodeCommand;
 		terminalCommand = JSON.parse(message).terminalCommand;
+		commandWithReturn = JSON.parse(message).commandWithReturn;
 		terminalName = JSON.parse(message).terminalName;
 
 	}
@@ -201,8 +206,26 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 		return
 	}
 
+	if (commandWithReturn != undefined && commandWithReturn != null) {
+		const commandObject = new Command("CommandWithReturn", commandWithReturn)
+
+		cp.exec(commandWithReturn, (err, stdout, stderr) => {
+			console.log('stdout: ' + stdout);
+			console.log('stderr: ' + stderr);
+			event.message = stdout
+			if (err) {
+				console.log('error: ' + err);
+				event.message = err
+			}
+			event.eventName = commandObject.name
+			ws.send(event.toJsonString())
+
+		});
+		return
+	}
+
 	if (terminalCommand != undefined && terminalCommand != null) {
-		vscodeKeyboardCommand(terminalCommand);
+		vscodeKeyboardTerminal(terminalCommand, { terminalName: terminalName });
 		const commandObject = new Command("TerminalCommand", terminalCommand, terminalCommand)
 		event.eventName = commandObject.name
 		event.message = commandObject.response
@@ -229,28 +252,36 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 
 let flutterTerminal;
 let commandTerminal;
+let lastTerminalName;
 
 function executeFlutterCommand(command) {
 	if (flutterTerminal == undefined) {
-		flutterTerminal = vscode.window.createTerminal('VscodeKeyboard: Flutter Terminal' );
+		flutterTerminal = vscode.window.createTerminal('VscodeKeyboard: Flutter Terminal');
 	}
-	vscode.window.showInformationMessage('vscodeKeyboard: Flutter Command:  ' + command);
+	vscode.window.showInformationMessage('vscodeKeyboard: Flutter Command ->  ' + command);
 	flutterTerminal.sendText(`${command}`);
 	flutterTerminal.show();
 }
 
-
-function vscodeKeyboardCommand(command) {
-	if (commandTerminal == undefined) {
-		commandTerminal = vscode.window.createTerminal('VscodeKeyboard: Command Terminal');
+function vscodeKeyboardTerminal(command, { terminalName = "Command Terminal" }) {
+	if (lastTerminalName != terminalName) {
+		lastTerminalName = terminalName
+		commandTerminal = vscode.window.createTerminal('VscodeKeyboard: ' + terminalName);
 	}
+
+	if (commandTerminal == undefined) {
+		commandTerminal = vscode.window.createTerminal('VscodeKeyboard: ' + terminalName);
+	}
+
 	vscode.window.showInformationMessage('vscodeKeyboard: Command Terminal:  ' + command);
 	commandTerminal.sendText(`${command}`);
 	commandTerminal.show();
 }
 
-function deactivate() {
 
+
+function deactivate() {
+	vscode.window.showWarningMessage('vscodeKeyboard: Deactivated ');
 }
 
 module.exports = {
