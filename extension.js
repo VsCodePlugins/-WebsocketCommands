@@ -1,38 +1,81 @@
-
 const vscode = require('vscode');
 const WebSocket = require('ws');
 const cp = require('child_process')
+let wss;
+var dictClientsWs = {};
 
 /**
  * @param {vscode.ExtensionContext} context
+ * @param {vscode.StatusBarItem} myStatusBarItem
+ * @param {vscode.DebugSession} debugSession
+
  */
+
+let sessionsDebugDict = {}
 
 const Event = require('./event_model');
 const Command = require('./command_model');
+const ClientWs = require('./client_ws_model');
+const ModelSessionDebug = require('./session_debug_model');
+
 var ip = require('ip');
+const myCommandId = 'vscodeKeyboard.display_settings';
+
+let mapDebugCommands = {
+	"startDebug": new Command("startDebug", "start", "Start (F5)"),
+	"continueDebug": new Command("continueDebug", "continue", "Continue (F5)"),
+	"stopDebug": new Command("stopDebug", "stop", "Stop (Shift+F5)"),
+	"pauseDebug": new Command("pauseDebug", "pause", "Pause (F6)"),
+	"restartDebug": new Command("restartDebug", "restart", "Restart (Ctrl+Shift+F5)"),
+	"stepOutDebug": new Command("stepOutDebug", "stepOut", "Step Out (Shift+F11)"),
+	"stepIntoDebug": new Command("stepIntoDebug", "stepInto", "Step Into (F11)"),
+	"stepOverDebug": new Command("stepOverDebug", "stepOver", "Step Over (F10)"),
+}
+
+let globalStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+globalStatusBar.command = myCommandId;
 
 
 
 function activate(context) {
 
-	let wss;
+
+	// create a new status bar item that we can now manage
+
+	context.subscriptions.push(globalStatusBar);
+
+
+
 	//let timeoutID = setTimeout(websocketServer, context=context, 2000);
 	//console.log(timeoutID)
 	let port = 5813;
 	wss = websocketServer(context, port);
+	subscribeEventsDebugging(context);
 
 	let disposable_display_settings = vscode.commands.registerCommand('vscodeKeyboard.display_settings', function () {
-		vscode.window.showInformationMessage('vscodeKeyboard: localhost address -> ' + ip.address() + ":" + port);
+		vscode.commands.executeCommand('workbench.action.debug.nextConsole');
+		if (wss.clients.size > 0) {
+			let clientsStr = getNamesAsString(dictClientsWs)
+
+			vscode.window.showInformationMessage('VscodeKeyboard:\nTotal clients connected -> ' + wss.clients.size + '\n ' + clientsStr + ' connected to : ' + ip.address() + ":" + port + "\n", "vscodekeyboard.com", "Settings", "README").then(selection => {
+				if (selection === "vscodekeyboard.com") {
+					vscode.env.openExternal(vscode.Uri.parse(
+						'https://www.vscodekeyboard.com'));
+				}
+			});
+		} else {
+			vscode.window.showInformationMessage('VscodeKeyboard:  Open to connections -> ' + ip.address() + ":" + port + ', No clients connected', "vscodekeyboard.com");
+		}
 	});
 
 	let disposable_open_ws_port = vscode.commands.registerCommand('vscodeKeyboard.open_websocket_port', function () {
-		vscode.window.showInformationMessage('vscodeKeyboard: Open to connections -> ' + ip.address() + ":" + port);
+		vscode.window.showInformationMessage('VscodeKeyboard: Open to connections -> ' + ip.address() + ":" + port);
 		wss = websocketServer(context, port);
 	});
 
 	let disposable_close_ws_port = vscode.commands.registerCommand('vscodeKeyboard.close_websocket_port', function () {
 		wss.close()
-		vscode.window.showWarningMessage('vscodeKeyboard: Connection in -> ' + ip.address() + ":" + port + " closed");
+		vscode.window.showWarningMessage('VscodeKeyboard: Connection in -> ' + ip.address() + ":" + port + " closed");
 	});
 
 	let disposable_update_port = vscode.commands.registerCommand('vscodeKeyboard.update_port', async function () {
@@ -55,10 +98,12 @@ function activate(context) {
 				newPort = value;
 				return null;
 			}
-		})
+		}).then(
+
+		);
 		if (newPort !== undefined) {
 			wss.close()
-			vscode.window.showWarningMessage('vscodeKeyboard: Connection in -> ' + ip.address() + ":" + port + " closed");
+			vscode.window.showWarningMessage('vscodeKeyboard: Connection in -> ' + ip.address() + ":" + port + " closed",);
 			wss = websocketServer(context, newPort);
 		}
 
@@ -69,35 +114,163 @@ function activate(context) {
 	context.subscriptions.push(disposable_close_ws_port);
 }
 
-function onDidChange(session, ws, eventName, message = null) {
+function subscribeEventsDebugging(context) {
+	context.subscriptions.push(vscode.debug.onDidChangeActiveDebugSession(session => {
+		updateDictDebugSession(session, "onDidChangeActiveDebugSession")
+
+	}));
+
+	context.subscriptions.push(vscode.debug.onDidChangeBreakpoints(() => {
+
+		const breakpoints = vscode.debug.breakpoints;
+		let session = vscode.debug.activeDebugSession
+		updateDictDebugSession(session, "onDidChangeActiveDebugSession", "totalBreakpoints: " + breakpoints.length)
+	}));
+
+	context.subscriptions.push(vscode.debug.onDidStartDebugSession((session) => {
+		updateDictDebugSession(session, "onDidStartDebugSession")
+
+	}));
+
+	context.subscriptions.push(vscode.debug.onDidTerminateDebugSession((session) => {
+		let unixTimestamp = sessionsDebugDict[session.id].unixTimestamp
+		delete sessionsDebugDict[session.id];
+		onDidChange(session, "onDidTerminateDebugSession", unixTimestamp)
+
+	}));
+
+	context.subscriptions.push(vscode.debug.onDidReceiveDebugSessionCustomEvent((e) => {
+		const debugSession = vscode.debug.activeDebugSession;
+		updateDictDebugSession(debugSession, "onDidReceiveDebugSessionCustomEvent", e.body)
+	}));
+
+}
+
+function onDidChange(session, ws, eventName, sessionUnixTimestamp, message = null,) {
 	let debugSession = session;
-	console.log("EventName: " + eventName + "Session:" + session.id);
 	debugSession = session;
 	var id = Math.random().toString(16).slice(2)
 	const event = new Event({
 		sessionID: debugSession.id,
 		sessionType: debugSession.type,
 		sessionName: debugSession.name,
+		sessionUnixTimestamp: sessionUnixTimestamp,
 		eventID: eventName + "_" + id,
 		eventName: eventName,
-		eventType: "onDidChange",
+		eventType: "onDidChangeDebug",
 		message: message === null ? eventName : message
 	})
+	console.log(event.toJsonString());
 	ws.send(event.toJsonString());
 }
 
+function getNamesAsString(dictionary) {
+	var values = [];
+
+	for (var clave in dictionary) {
+		if (dictionary.hasOwnProperty(clave)) {
+			values.push(dictionary[clave].name);
+		}
+	}
+
+	return values.join(",\n");
+}
+
+
+function ensureAvailabilityPort(port) {
+	port = port + 1;
+}
+
+
+
+
+function syncSessionsDebug(message = null) {
+for (const [key, modelDebugSession] of Object.entries(sessionsDebugDict)) {
+	updateDictDebugSession(modelDebugSession.debugSession, "syncSessionsDebug", message)
+}
+}
+
+
+/**
+ * @param {Event} event
+
+ */
+function sendEventToAllClientsWs(event) {
+	if (Object.keys(dictClientsWs).length ==0){
+		console.log("No client Ws ")
+		return;
+	}
+	for (const [key, clientWs] of Object.entries(dictClientsWs)) {
+		clientWs.ws.send(event.toJsonString())
+
+	}
+}
+
+function updateDictDebugSession(sessionDebug, eventName, message) {
+	if (sessionDebug == undefined) {
+		console.log("session undefined")
+		return ;
+	}
+	if (sessionDebug == null) {
+		console.log("session null")
+		return;
+	}
+
+	let modelDebugSession;
+
+	if (sessionsDebugDict[sessionDebug.id] === undefined) {
+		modelDebugSession = new ModelSessionDebug(sessionDebug.id, sessionDebug)
+		sessionsDebugDict[sessionDebug.id] = modelDebugSession;
+	} else {
+		modelDebugSession = sessionsDebugDict[sessionDebug.id]
+	}
+	if (Object.keys(dictClientsWs).length ==0 ){
+		console.log("No client Ws ")
+		return;
+	}
+	// Notify to ws clients.
+	for (const [key, clientWs] of Object.entries(dictClientsWs)) {
+		onDidChange(sessionDebug, clientWs.ws, eventName, modelDebugSession.unixTimestamp, message);
+	}
+}
+
+function statusBarState(wss){
+	globalStatusBar.tooltip = wss.clients.size + " Device connected"
+
+	if (wss.clients.size > 1) {
+		globalStatusBar.text = `${wss.clients.size} 🌐 VscKeyboard`;
+		globalStatusBar.tooltip = wss.clients.size + " Device connected"
+
+	}
+	if (wss.clients.size == 1) {
+		globalStatusBar.tooltip = wss.clients.size + " Device connected"
+		globalStatusBar.text = `🌐 VscKeyboard`;
+
+	}
+	if (wss.clients.size == 0) {
+		globalStatusBar.text = `🚫 VscKeyboard`;
+		globalStatusBar.tooltip = wss.clients.size + " Device connected"
+	}
+	globalStatusBar.show();
+}
 /**
  * @param {vscode.ExtensionContext} context
- * @param {Number} port
  */
-
 function websocketServer(context, port) {
 
 	const wss = new WebSocket.Server({ port: port });
-	vscode.window.showInformationMessage('vscodeKeyboard: Open to receive connections in -> ' + ip.address() + ":" + port);
-	wss.on('connection', function connection(ws) {
-		console.log('Client connected');
-		vscode.window.showInformationMessage('vscodeKeyboard:Client connected in -> ' + ip.address() + ":" + port);
+	vscode.window.showInformationMessage('VscodeKeyboard: Open to receive connections in -> ' + ip.address() + ":" + port);
+	globalStatusBar.text = `🚦 VscKeyboard`;
+	globalStatusBar.tooltip = wss.clients.size + " Device connected"
+	globalStatusBar.show();
+
+	wss.on('connection', function connection(ws, req) {
+		console.log('Client connected...');
+		let client = new ClientWs(req.headers['sec-websocket-key'], undefined, ws);
+		dictClientsWs[client.id] = client;
+
+		syncSessionsDebug()
+		statusBarState(wss)
 		ws.on('message', function incoming(message) {
 			let sessionID;
 			let sessionName;
@@ -108,53 +281,23 @@ function websocketServer(context, port) {
 				sessionName = vscode.debug.activeDebugSession.name;
 				sessionType = vscode.debug.activeDebugSession.type;
 			}
-			executeCommand(message.toString(), ws, sessionID, sessionName, sessionType);
+			executeCommand(message.toString(), client, sessionID, sessionName, sessionType);
 		});
-
 		ws.on('close', function () {
-			vscode.window.showWarningMessage('vscodeKeyboard: Client disconnected in -> ' + ip.address() + ":" + port);
+			//vscode.window.showWarningMessage('vscodeKeyboard: Client '+ client.name + ' disconnected in -> ' + ip.address() + ":" + port);
+			delete dictClientsWs[client.id]
+			statusBarState(wss)
+
 		});
-
-		context.subscriptions.push(vscode.debug.onDidChangeActiveDebugSession(session => {
-			onDidChange(session, ws, "onDidChangeActiveDebugSession");
-			return;
-		}));
-
-		context.subscriptions.push(vscode.debug.onDidChangeBreakpoints(() => {
-			const breakpoints = vscode.debug.breakpoints;
-			onDidChange(vscode.debug.activeDebugSession, ws, "onDidChangeBreakpoints", "Total breakpoints:" + breakpoints.length)
-		}));
-
-		context.subscriptions.push(vscode.debug.onDidStartDebugSession((session) => {
-			onDidChange(session, ws, "onDidStartDebugSession")
-		}));
-
-		context.subscriptions.push(vscode.debug.onDidTerminateDebugSession((session) => {
-			onDidChange(session, ws, "onDidTerminateDebugSession")
-
-		}));
-
-		context.subscriptions.push(vscode.debug.onDidReceiveDebugSessionCustomEvent((e) => {
-			onDidChange(vscode.debug.activeDebugSession, ws, "onDidReceiveDebugSessionCustomEvent", e.body)
-		}));
+	
 
 
 	});
+
+	
 	return wss;
 }
 
-
-
-let mapDebugCommands = {
-	"startDebug": new Command("startDebug", "start", "Start (F5)"),
-	"continueDebug": new Command("continueDebug", "continue", "Continue (F5)"),
-	"stopDebug": new Command("stopDebug", "stop", "Stop (Shift+F5)"),
-	"pauseDebug": new Command("pauseDebug", "pause", "Pause (F6)"),
-	"restartDebug": new Command("restartDebug", "restart", "Restart (Ctrl+Shift+F5)"),
-	"stepOutDebug": new Command("stepOutDebug", "stepOut", "Step Out (Shift+F11)"),
-	"stepIntoDebug": new Command("stepIntoDebug", "stepInto", "Step Into (F11)"),
-	"stepOverDebug": new Command("stepOverDebug", "stepOver", "Step Over (F10)"),
-}
 
 function isJSONValid(message) {
 	try {
@@ -166,14 +309,19 @@ function isJSONValid(message) {
 }
 
 
+/**
+ * @param {ClientWs} client
+ */
 
-function executeCommand(message, ws, currentSessionID, currentSessionName, currentSessionType) {
+function executeCommand(message, client, currentSessionID, currentSessionName, currentSessionType) {
 	let commandReturnEvent = "commandReturnEvent";
 	let eventID;
 	let vscodeCommand;
 	let terminalCommand;
 	let commandWithReturn;
 	let terminalName;
+	let startConnection;
+	let clientDevice;
 
 
 	if (isJSONValid(message)) {
@@ -182,11 +330,17 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 		terminalCommand = JSON.parse(message).terminalCommand;
 		commandWithReturn = JSON.parse(message).commandWithReturn;
 		terminalName = JSON.parse(message).terminalName;
-
+		clientDevice = JSON.parse(message).clientDevice;
+		startConnection = JSON.parse(message).startConnection;
 	}
 
 	if (eventID === undefined) {
 		eventID = "command_" + Math.random().toString(16).slice(2)
+	}
+
+	if (clientDevice != undefined && startConnection) {
+		client.name = clientDevice
+		//vscode.window.showInformationMessage('VscodeKeyboard: Client : '+ clientDevice + ' connected' );
 	}
 
 	let event = new Event({
@@ -202,7 +356,7 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 		const commandObject = new Command("VscodeCommand", vscodeCommand, vscodeCommand)
 		event.eventName = commandObject.name
 		event.message = commandObject.response
-		ws.send(event.toJsonString())
+		sendEventToAllClientsWs(event);
 		return
 	}
 
@@ -218,7 +372,7 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 				event.message = err
 			}
 			event.eventName = commandObject.name
-			ws.send(event.toJsonString())
+			sendEventToAllClientsWs(event);
 
 		});
 		return
@@ -229,7 +383,7 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 		const commandObject = new Command("TerminalCommand", terminalCommand, terminalCommand)
 		event.eventName = commandObject.name
 		event.message = commandObject.response
-		ws.send(event.toJsonString())
+		sendEventToAllClientsWs(event);
 		return
 	}
 
@@ -238,7 +392,7 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 		const commandObject = new Command("FLutterCommand", message.toString(), message.toString())
 		event.eventName = commandObject.name
 		event.message = commandObject.response
-		ws.send(event.toJsonString())
+		sendEventToAllClientsWs(event);
 		return;
 	}
 	if (message.toString().includes("Debug")) {
@@ -246,7 +400,7 @@ function executeCommand(message, ws, currentSessionID, currentSessionName, curre
 		event.eventName = commandObject.name
 		event.message = commandObject.response
 		vscode.commands.executeCommand('workbench.action.debug.' + mapDebugCommands[message.toString()].command);
-		ws.send(event.toJsonString())
+		sendEventToAllClientsWs(event);
 	}
 }
 
@@ -258,7 +412,7 @@ function executeFlutterCommand(command) {
 	if (flutterTerminal == undefined) {
 		flutterTerminal = vscode.window.createTerminal('VscodeKeyboard: Flutter Terminal');
 	}
-	vscode.window.showInformationMessage('vscodeKeyboard: Flutter Command ->  ' + command);
+	vscode.window.showInformationMessage('VscodeKeyboard: Flutter Command ->  ' + command);
 	flutterTerminal.sendText(`${command}`);
 	flutterTerminal.show();
 }
@@ -273,14 +427,15 @@ function vscodeKeyboardTerminal(command, { terminalName = "Command Terminal" }) 
 		commandTerminal = vscode.window.createTerminal('VscodeKeyboard: ' + terminalName);
 	}
 
-	vscode.window.showInformationMessage('vscodeKeyboard: Command Terminal:  ' + command);
+	vscode.window.showInformationMessage('VscodeKeyboard: Command Terminal:  ' + command);
 	commandTerminal.sendText(`${command}`);
 	commandTerminal.show();
 }
 
-
-
 function deactivate() {
+	if (wss != undefined) {
+		wss.close()
+	}
 	vscode.window.showWarningMessage('vscodeKeyboard: Deactivated ');
 }
 
