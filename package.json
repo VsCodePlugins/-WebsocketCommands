@@ -1,8 +1,14 @@
 {
-  "name": "vscode-keyboard",
-  "displayName": "VscodeKeyboard",
-  "description": "It is an extension that offers a websocket interface to execute commands, this application has been designed to be used in conjunction with the vscodeKeyboard App.",
-  "version": "0.0.1",
+  "name": "vscode-plugins-websocket-commands",
+  "displayName": "WCMD - WebSocket Interface for VS Code",
+  "description": "It is an extension that offers a websocket interface to execute commands, this application has been designed to be used in conjunction with the wcmd App.",
+  "version": "0.0.2",
+  "publisher": "VscodePlugins - Websocket Commands",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CmdKeys/cmdkeys.github.io.git"
+  },
 
   "engines": {
     "vscode": "^1.89.0"
@@ -15,20 +21,20 @@
   "contributes": {
     "commands": [
       {
-        "command": "vscodeKeyboard.update_port",
-        "title": "VscodeKeyboard: Update port number"
+        "command": "wcmd.updatePort",
+        "title": "wcmd: Update port number"
       },
       {
-        "command": "vscodeKeyboard.display_settings",
-        "title": "VscodeKeyboard: Display setting"
+        "command": "wcmd.displaySettings",
+        "title": "wcmd: Display setting"
       },
       {
-        "command": "vscodeKeyboard.open_websocket_port",
-        "title": "VscodeKeyboard: Open port to websocket connections"
+        "command": "wcmd.openWebsocketPort",
+        "title": "wcmd: Open port to websocket connections"
       },
       {
-        "command": "vscodeKeyboard.close_websocket_port",
-        "title": "VscodeKeyboard: Close port to websocket connections"
+        "command": "wcmd.closeWebsocketPort",
+        "title": "wcmd: Close port to websocket connections"
       }
 
     ]
@@ -36,7 +42,7 @@
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",
-    "test": "vscode-test"
+    "test": "wcmd-test"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",

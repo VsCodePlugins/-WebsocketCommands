@@ -19,7 +19,7 @@ const ClientWs = require('./client_ws_model');
 const ModelSessionDebug = require('./session_debug_model');
 
 var ip = require('ip');
-const myCommandId = 'vscodeKeyboard.display_settings';
+const myCommandId = 'wcmd.displaySettings';
 
 let globalStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 globalStatusBar.command = myCommandId;
@@ -38,32 +38,45 @@ function activate(context) {
 	wss = websocketServer(context, port);
 	subscribeEventsDebugging(context);
 
-	let disposable_display_settings = vscode.commands.registerCommand('vscodeKeyboard.display_settings', function () {
+	let disposable_display_settings = vscode.commands.registerCommand('wcmd.displaySettings', function () {
 		if (wss.clients.size > 0) {
 			let clientsStr = getNamesAsString(dictClientsWs)
 
-			vscode.window.showInformationMessage('VscodeKeyboard:\nTotal clients connected -> ' + wss.clients.size + '\n ' + clientsStr + ' connected to : ' + ip.address() + ":" + port + "\n", "vscodekeyboard.com", "Settings", "README").then(selection => {
-				if (selection === "vscodekeyboard.com") {
+			vscode.window.showInformationMessage('wcmd:\nTotal clients connected -> ' + wss.clients.size + '\n ' + clientsStr + ' connected to : ' + ip.address() + ":" + port + "\n", "Web App", "Github", "Readme").then(selection => {
+				if (selection === "Web App") {
 					vscode.env.openExternal(vscode.Uri.parse(
-						'https://www.vscodekeyboard.com'));
+						'https://cmdkeys.github.io'));
+				} else if (selection === "Readme") {
+					vscode.env.openExternal(vscode.Uri.parse(
+						'https://marketplace.visualstudio.com/items?itemName=VscodePlugins-CmdKeys.vscodeplugins-cmdkeys'));
+
+				} else if (selection === "Github") {
+					vscode.env.openExternal(vscode.Uri.parse(
+						'https://github.com/VsCodePlugins/CmdKeys.git'));
+
 				}
 			});
 		} else {
-			vscode.window.showInformationMessage('VscodeKeyboard:  Open to connections -> ' + ip.address() + ":" + port + ', No clients connected', "vscodekeyboard.com");
+			vscode.window.showInformationMessage('wcmd:  Open to connections -> ' + ip.address() + ":" + port + ' - No clients connected', "Web App").then(selection => {
+				if (selection === "Web App") {
+					vscode.env.openExternal(vscode.Uri.parse(
+						'https://cmdkeys.github.io'));
+				}
+			});
 		}
 	});
 
-	let disposable_open_ws_port = vscode.commands.registerCommand('vscodeKeyboard.open_websocket_port', function () {
-		vscode.window.showInformationMessage('VscodeKeyboard: Open to connections -> ' + ip.address() + ":" + port);
+	let disposable_open_ws_port = vscode.commands.registerCommand('wcmd.openWebsocketPort', function () {
+		vscode.window.showInformationMessage('wcmd: Open to connections -> ' + ip.address() + ":" + port);
 		wss = websocketServer(context, port);
 	});
 
-	let disposable_close_ws_port = vscode.commands.registerCommand('vscodeKeyboard.close_websocket_port', function () {
+	let disposable_close_ws_port = vscode.commands.registerCommand('wcmd.closeWebsocketPort', function () {
 		wss.close()
-		vscode.window.showWarningMessage('VscodeKeyboard: Connection in -> ' + ip.address() + ":" + port + " closed");
+		vscode.window.showWarningMessage('wcmd: Connection in -> ' + ip.address() + ":" + port + " closed");
 	});
 
-	let disposable_update_port = vscode.commands.registerCommand('vscodeKeyboard.update_port', async function () {
+	let disposable_update_port = vscode.commands.registerCommand('wcmd.updatePort', async function () {
 
 		let newPort;
 
@@ -87,10 +100,10 @@ function activate(context) {
 
 		);
 
-	if (newPort !== undefined) {
-		wss.close()
-		vscode.window.showWarningMessage('vscodeKeyboard: Connection in -> ' + ip.address() + ":" + port + " closed",);
-		wss = websocketServer(context, newPort);
+		if (newPort !== undefined) {
+			wss.close()
+			vscode.window.showWarningMessage('wcmd: Connection in -> ' + ip.address() + ":" + port + " closed",);
+			wss = websocketServer(context, newPort);
 		}
 	});
 	context.subscriptions.push(disposable_update_port);
@@ -99,12 +112,12 @@ function activate(context) {
 	context.subscriptions.push(disposable_close_ws_port);
 }
 
-	/**
-	 * @param {vscode.DebugSession} sessionDebug
-	 * @param {string} eventName
-	 * @param {number} sessionUnixTimestamp
-	 * @param {undefined} [message]
-	 */
+/**
+ * @param {vscode.DebugSession} sessionDebug
+ * @param {string} eventName
+ * @param {number} sessionUnixTimestamp
+ * @param {undefined} [message]
+ */
 
 function sendOnDidChangeToAll(sessionDebug, eventName, sessionUnixTimestamp, message) {
 	// Notify by ws to all clients.
@@ -113,12 +126,12 @@ function sendOnDidChangeToAll(sessionDebug, eventName, sessionUnixTimestamp, mes
 	}
 }
 
-	/**
-	 * @param {vscode.DebugSession} session
-	 * @param {{ send: (arg0: string) => void; }} ws
-	 * @param {string} eventName
-	 * @param {number} sessionUnixTimestamp
-	 */
+/**
+ * @param {vscode.DebugSession} session
+ * @param {{ send: (arg0: string) => void; }} ws
+ * @param {string} eventName
+ * @param {number} sessionUnixTimestamp
+ */
 
 function onDidChange(session, ws, eventName, sessionUnixTimestamp, message = null,) {
 	let debugSession = session;
@@ -169,7 +182,7 @@ function subscribeEventsDebugging(context) {
 		sendOnDidChangeToAll(session, "onDidTerminateDebugSession", unixTimestamp)
 	}));
 
-	context.subscriptions.push(vscode.debug.onDidReceiveDebugSessionCustomEvent((_e) => {
+	context.subscriptions.push(vscode.debug.onDidReceiveDebugSessionCustomEvent((e) => {
 		//const debugSession = vscode.debug.activeDebugSession;
 		//updateDictDebugSession(debugSession, "onDidReceiveDebugSessionCustomEvent", e.body)
 	}));
@@ -194,23 +207,23 @@ function getNamesAsString(dictionary) {
  */
 async function delay(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
-  }
+}
 async function nextConsole() {
 	vscode.commands.executeCommand('workbench.action.debug.nextConsole');
 	await delay(100);
-  }
+}
 
-  /**
- * @param {string} nameSession
- */
-  async function changeSession(nameSession) {
+/**
+* @param {string} nameSession
+*/
+async function changeSession(nameSession) {
 
 	let currentSession = vscode.debug.activeDebugSession;
 	if (nameSession == currentSession.name) {
 		return;
 	}
 
-	for  await (const [key, modelDebugSession] of Object.entries(sessionsDebugDict)) {
+	for await (const [key, modelDebugSession] of Object.entries(sessionsDebugDict)) {
 		await nextConsole()
 		let currentSession = vscode.debug.activeDebugSession;
 		if (currentSession.name == nameSession) {
@@ -242,7 +255,6 @@ function sendEventToAllClientsWs(event) {
 
 	}
 }
-
 
 
 function updateDictDebugSession(sessionDebug, eventName, message) {
@@ -279,17 +291,17 @@ function statusBarState(wss) {
 	globalStatusBar.tooltip = wss.clients.size + " Device connected"
 
 	if (wss.clients.size > 1) {
-		globalStatusBar.text = `${wss.clients.size} 🌐 VscKeyboard`;
+		globalStatusBar.text = `${wss.clients.size} 🔌 Websocket Commands`;
 		globalStatusBar.tooltip = wss.clients.size + " Device connected"
 
 	}
 	if (wss.clients.size == 1) {
 		globalStatusBar.tooltip = wss.clients.size + " Device connected"
-		globalStatusBar.text = `🌐 VscKeyboard`;
+		globalStatusBar.text = `🔌 Websocket Commands`;
 
 	}
 	if (wss.clients.size == 0) {
-		globalStatusBar.text = `🚫 VscKeyboard`;
+		globalStatusBar.text = `🚫 Websocket Commands`;
 		globalStatusBar.tooltip = wss.clients.size + " Device connected"
 	}
 	globalStatusBar.show();
@@ -299,9 +311,10 @@ function statusBarState(wss) {
  */
 function websocketServer(_context, port) {
 
+	// @ts-ignore
 	const wss = new WebSocket.Server({ port: port });
-	vscode.window.showInformationMessage('VscodeKeyboard: Open to receive connections in -> ' + ip.address() + ":" + port);
-	globalStatusBar.text = `🚦 VscKeyboard`;
+	vscode.window.showInformationMessage('wcmd: Open to receive connections in -> ' + ip.address() + ":" + port);
+	globalStatusBar.text = `🚦 Websocket Commands`;
 	globalStatusBar.tooltip = wss.clients.size + " Device connected"
 	globalStatusBar.show();
 
@@ -325,7 +338,7 @@ function websocketServer(_context, port) {
 			executeCommand(message.toString(), client, sessionID, sessionName, sessionType);
 		});
 		ws.on('close', function () {
-			//vscode.window.showWarningMessage('vscodeKeyboard: Client '+ client.name + ' disconnected in -> ' + ip.address() + ":" + port);
+			//vscode.window.showWarningMessage('wcmd: Client '+ client.name + ' disconnected in -> ' + ip.address() + ":" + port);
 			delete dictClientsWs[client.id]
 			statusBarState(wss)
 
@@ -379,8 +392,8 @@ async function executeCommand(message, client, currentSessionID, currentSessionN
 
 	}
 
-	if (showMessage != undefined && showMessage){
-		vscode.window.showInformationMessage('VscodeKeyboard: '+ showMessage);
+	if (showMessage != undefined && showMessage) {
+		vscode.window.showInformationMessage('wcmd: ' + showMessage);
 
 	}
 
@@ -390,7 +403,7 @@ async function executeCommand(message, client, currentSessionID, currentSessionN
 
 	if (clientDevice != undefined && startConnection) {
 		client.name = clientDevice
-		//vscode.window.showInformationMessage('VscodeKeyboard: Client : '+ clientDevice + ' connected' );
+		//vscode.window.showInformationMessage('wcmd: Client : '+ clientDevice + ' connected' );
 	}
 
 	let event = new Event({
@@ -415,7 +428,7 @@ async function executeCommand(message, client, currentSessionID, currentSessionN
 		cp.exec(commandWithReturn, (err, stdout, stderr) => {
 			console.log('stdout: ' + stdout);
 			console.log('stderr: ' + stderr);
-			event.message = stdout +" " + stderr
+			event.message = stdout + " " + stderr
 
 			if (err) {
 				console.log('error: ' + err.message);
@@ -428,13 +441,13 @@ async function executeCommand(message, client, currentSessionID, currentSessionN
 		return
 	}
 
-	if (getVsCodeCommands != undefined && getVsCodeCommands){
+	if (getVsCodeCommands != undefined && getVsCodeCommands) {
 		let list = await vscode.commands.getCommands()
 		let listCommandsMessage = "";
 
-		for (let row in list){
+		for (let row in list) {
 			console.log(list[row])
-			listCommandsMessage = listCommandsMessage + list[row] + "\n"; 
+			listCommandsMessage = listCommandsMessage + list[row] + "\n";
 		}
 
 		event.eventName = "listCommandsMessage"
@@ -444,9 +457,9 @@ async function executeCommand(message, client, currentSessionID, currentSessionN
 	}
 
 	if (terminalCommand != undefined && terminalCommand != null) {
-		vscodeKeyboardTerminal(terminalCommand, { terminalName: terminalName });
+		cmdTerminal(terminalCommand, { terminalName: terminalName });
 		const commandObject = new Command("terminalCommand", terminalCommand, terminalCommand)
-		
+
 		event.eventName = commandObject.name
 		event.message = commandObject.response
 		sendEventToAllClientsWs(event);
@@ -457,7 +470,7 @@ async function executeCommand(message, client, currentSessionID, currentSessionN
 		changeSession(debugSessionNameSelector);
 		return
 	}
-	
+
 	if (debugCommand != undefined && debugCommand != null) {
 		const commandObject = new Command("debugCommand", debugCommand, debugCommand)
 		event.eventName = commandObject.name
@@ -472,18 +485,18 @@ let commandTerminal;
 let lastTerminalName;
 
 
-function vscodeKeyboardTerminal(command, { terminalName = "Command Terminal" }) {
+function cmdTerminal(command, { terminalName = "Command Terminal" }) {
 
 	if (lastTerminalName != terminalName) {
 		lastTerminalName = terminalName
-		commandTerminal = vscode.window.createTerminal('VscodeKeyboard: ' + terminalName);
+		commandTerminal = vscode.window.createTerminal('wcmd: ' + terminalName);
 	}
 
 	if (commandTerminal == undefined) {
-		commandTerminal = vscode.window.createTerminal('VscodeKeyboard: ' + terminalName);
+		commandTerminal = vscode.window.createTerminal('wcmd: ' + terminalName);
 	}
 
-	vscode.window.showInformationMessage('VscodeKeyboard: Command Terminal:  ' + command);
+	vscode.window.showInformationMessage('wcmd: Command Terminal:  ' + command);
 	commandTerminal.sendText(`${command}`);
 	commandTerminal.show();
 }
@@ -492,7 +505,7 @@ function deactivate() {
 	if (wss != undefined) {
 		wss.close()
 	}
-	vscode.window.showWarningMessage('vscodeKeyboard: Deactivated ');
+	vscode.window.showWarningMessage('wcmd: Deactivated ');
 }
 
 module.exports = {
